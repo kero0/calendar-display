@@ -1,0 +1,8 @@
+# ~/.config/systemd/user/calendar-display-usr1.service
+[Unit]
+Description=Send SIGUSR1 to Calendar Display
+
+[Service]
+Type=oneshot
+ExecStart=systemctl --user kill -s USR1 calendar-display.service
+

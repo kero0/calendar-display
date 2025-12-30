@@ -1,0 +1,22 @@
+[package]
+name = "calendar-display"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4.42"
+embedded-graphics = "0.8.1"
+epd-waveshare = "0.6.0"
+ical = "0.11.0"
+linux-embedded-hal = "0.4.1"
+reqwest = { version = "0.12.28", features = ["blocking", "json"] }
+rppal = { version = "0.22.1", features = ["embedded-hal"] }
+serde_json = "1.0.147"
+signal-hook = "0.4.1"
+
+[build-dependencies]
+fontdue = "0.9.3"
+image = "0.25.9"
+
+[dev-dependencies]
+image = "0.25.9"

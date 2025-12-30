@@ -1,0 +1,12 @@
+# ~/.config/systemd/user/calendar-display-usr1.timer
+[Unit]
+Description=Send SIGUSR1 to Calendar Display every 5 minutes
+Requires=calendar-display.service
+After=network-online.target
+
+[Timer]
+OnCalendar=*-*-* *:0/5:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

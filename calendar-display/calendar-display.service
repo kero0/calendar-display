@@ -1,0 +1,15 @@
+# ~/.config/systemd/user/calendar-display.service
+[Unit]
+Description=Calendar Display
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+ExecStart=%h/calendar-display/calendar-display
+EnvironmentFile=%h/calendar-display/env
+
+Restart=on-failure
+KillMode=process
+
+[Install]
+WantedBy=default.target
