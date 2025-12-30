@@ -4,6 +4,7 @@ My code assumes [this exact display](https://www.waveshare.com/7.5inch-e-paper-h
 
 ## Example display
 This image can be regenerated using `cargo test`
+![test image](./test/test_output.png)
 
 ## Set up
 The binary can be built with a simple `cargo build`, but I found this annoying to do directly on my raspberry pi zero, so instead I've been cross compiling a completely static binary using `nix build`.
