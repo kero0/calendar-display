@@ -1,14 +1,19 @@
+use std::{cell::RefCell, rc::Rc};
+
 use epd_waveshare::epd7in5_v2::*;
 use epd_waveshare::prelude::WaveshareDisplay;
 use linux_embedded_hal::{
     spidev::{self, SpidevOptions},
-    Delay, SpidevDevice,
+    Delay, SPIError, SpidevDevice,
 };
-use rppal::gpio::Gpio;
+use rppal::gpio::{Gpio, OutputPin};
 use signal_hook::consts::signal::{SIGINT, SIGTERM, SIGUSR1};
 use signal_hook::iterator::Signals;
 
-use crate::data::{mk_run_args, run};
+use crate::{
+    data::{mk_run_args, run, DisplayData, RunArgs},
+    image_gen::Disp,
+};
 mod data;
 mod fonts;
 mod image_gen;
@@ -20,6 +25,37 @@ pub const EPD_PWR_PIN: u8 = 18;
 pub const EPD_BUSY_PIN: u8 = 24;
 pub const EPD_MOSI_PIN: u8 = 10;
 pub const EPD_SCLK_PIN: u8 = 11;
+
+type Device<'a> =
+    Epd7in5<SpidevDevice, rppal::gpio::InputPin, &'a mut OutputPin, &'a mut OutputPin, Delay>;
+
+fn run_and_update(
+    cs: &mut OutputPin,
+    pwr: &mut OutputPin,
+    display: &mut Disp,
+    device: &mut Device,
+    delay: &mut Delay,
+    spi: &mut SpidevDevice,
+    runargs: &RunArgs,
+    state: Rc<RefCell<DisplayData>>,
+) {
+    run(display, &runargs, state);
+    eprintln!("Updating display");
+    cs.set_high();
+    pwr.set_high();
+    if let Err(e) = device.wake_up(spi, delay) {
+        eprintln!("Couldn't wake up display: {e}");
+        return;
+    };
+    if let Err(e) = device.update_and_display_frame(spi, display.buffer(), delay) {
+        eprintln!("Couldn't update display: {e}");
+    }
+    if let Err(e) = device.sleep(spi, delay) {
+        eprintln!("Couldn't put display to sleep: {e}");
+    }
+    cs.set_low();
+    pwr.set_low();
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runargs = mk_run_args();
@@ -47,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     pwr.set_high();
 
     let mut delay = Delay {};
-    let mut device = Epd7in5::new(&mut spi, busy, &mut dc, &mut rst, &mut delay, None)
+    let mut device = Device::new(&mut spi, busy, &mut dc, &mut rst, &mut delay, None)
         .expect("Failed to create Epd7in5");
     eprintln!("Created display");
     let mut display = Display7in5::default();
@@ -57,7 +93,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     eprintln!("Device successfully initialized!");
 
-    let mut state = None;
+    eprintln!("Starting initial update");
+    let  state = Rc::new(RefCell::new(DisplayData::default()));
+    run_and_update(
+        &mut cs,
+        &mut pwr,
+        &mut display,
+        &mut device,
+        &mut delay,
+        &mut spi,
+        &runargs,
+        state.clone(),
+    );
+    eprintln!("Finished initial update");
+
     let mut signals = Signals::new([SIGUSR1, SIGINT, SIGTERM])?;
     eprintln!("Waiting for signals...");
     eprintln!("SIGUSR1 ? update display");
@@ -67,16 +116,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match signal {
             SIGUSR1 => {
                 println!("SIGUSR1 received: running update");
-                state.replace(run(&mut display, &runargs, state.clone()));
-                eprintln!("Updating display");
-                cs.set_high();
-                pwr.set_high();
-                device.wake_up(&mut spi, &mut delay)?;
-                device.update_and_display_frame(&mut spi, display.buffer(), &mut delay)?;
-                device.sleep(&mut spi, &mut delay)?;
-                cs.set_low();
-                pwr.set_low();
-                eprintln!("Finished updating display");
+                run_and_update(
+                    &mut cs,
+                    &mut pwr,
+                    &mut display,
+                    &mut device,
+                    &mut delay,
+                    &mut spi,
+                    &runargs,
+                    state.clone(),
+                );
             }
             SIGINT | SIGTERM => {
                 println!("Exit signal received");

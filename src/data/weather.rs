@@ -1,6 +1,6 @@
 use chrono::{DateTime, Timelike, Utc};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct WeatherData {
     pub icon: &'static str,
     pub temperature: String,

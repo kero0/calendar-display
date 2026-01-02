@@ -1,7 +1,7 @@
 use crate::image_gen::create_image;
 use crate::{data::calendar::Calendar, image_gen::Disp};
 use calendar::mkcalendar;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use datetime::mk_time_date;
 use std::env::{self, VarError};
 use std::{cell::RefCell, rc::Rc};
@@ -11,7 +11,7 @@ pub mod calendar;
 pub mod datetime;
 pub mod weather;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct DisplayData {
     pub weather: WeatherData,
     pub calendar: Calendar,
@@ -28,78 +28,35 @@ pub struct RunArgs {
     pub calendar_ttl: i64,
 }
 
-pub fn run(
-    display: &mut Disp,
-    args: &RunArgs,
-    data: Option<Rc<RefCell<DisplayData>>>,
-) -> Rc<RefCell<DisplayData>> {
+pub fn run(display: &mut Disp, args: &RunArgs, data:  Rc<RefCell<DisplayData>>) {
     let (time, date) = mk_time_date();
 
-    let data = match data {
-        Some(data) => {
-            {
-                let mut data = data.borrow_mut();
-                let now = Utc::now();
-                data.date = date;
-                data.time = time;
+    let mut data = data.borrow_mut();
+    let now = Utc::now();
+    data.date = date;
+    data.time = time;
 
-                if (now - data.weather.time).num_seconds() > args.weather_ttl {
-                    match mkweather(args.lat, args.lon) {
-                        Ok(weather) => data.weather = weather,
-                        Err(e) => eprintln!("Failed to fetch calendar: {}", e),
-                    };
-                }
-                if (now - data.calendar.time).num_seconds() > args.calendar_ttl {
-                    match mkcalendar(args.ics.as_str(), args.max_events) {
-                        Ok(calendar) => {
-                            data.calendar = calendar;
-                        }
-                        Err(e) => eprintln!("Failed to fetch calendar: {}", e),
-                    }
-                }
+    if (now - data.weather.time).num_seconds() > args.weather_ttl {
+        match mkweather(args.lat, args.lon) {
+            Ok(weather) => data.weather = weather,
+            Err(e) => eprintln!("Failed to fetch calendar: {}", e),
+        };
+    }
+    if (now - data.calendar.time).num_seconds() > args.calendar_ttl {
+        match mkcalendar(args.ics.as_str(), args.max_events) {
+            Ok(calendar) => {
+                data.calendar = calendar;
             }
-
-            data
+            Err(e) => eprintln!("Failed to fetch calendar: {}", e),
         }
-        None => {
-            let calendar = match mkcalendar(args.ics.as_str(), args.max_events) {
-                Ok(calendar) => calendar,
-                Err(e) => {
-                    eprintln!("Failed to fetch calendar: {}", e);
-                    Calendar {
-                        events: vec![],
-                        time: DateTime::default(),
-                    }
-                }
-            };
-            let weather = match mkweather(args.lat, args.lon) {
-                Ok(weather) => weather,
-                Err(e) => {
-                    eprintln!("Failed to fetch weather: {}", e);
-                    WeatherData {
-                        icon: "",
-                        temperature: String::default(),
-                        time: DateTime::default(),
-                    }
-                }
-            };
-            Rc::new(RefCell::new(DisplayData {
-                weather,
-                calendar,
-                date,
-                time,
-            }))
-        }
-    };
+    }
 
     eprintln!("{:?}", data);
 
-    match create_image(display, &data.borrow()) {
+    match create_image(display, &data) {
         Ok(()) => eprintln!("Successfully updated display"),
         Err(err) => eprintln!("Failed to update display: {:?}", err),
     }
-
-    data
 }
 
 pub fn mk_run_args() -> RunArgs {
@@ -128,7 +85,9 @@ pub fn mk_run_args() -> RunArgs {
     };
 
     let calendar_ttl = match env::var("CALENDAR_TTL") {
-        Ok(s) => s.parse().expect("CALENDAR_TTL must be an integer (seconds)"),
+        Ok(s) => s
+            .parse()
+            .expect("CALENDAR_TTL must be an integer (seconds)"),
         Err(VarError::NotPresent) => 600,
         Err(VarError::NotUnicode(_)) => panic!("CALENDAR_TTL must be unicode"),
     };
