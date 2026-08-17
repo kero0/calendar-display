@@ -55,8 +55,10 @@ fn main() {
     println!("cargo:rerun-if-changed={}", font);
     println!("cargo:rerun-if-changed={}", emoji);
 
-    let font_data = fs::read(font).expect("Failed to read regular font");
-    let emoji_data = fs::read(emoji).expect("Failed to read emoji font");
+    let font_data =
+        fs::read(&font).unwrap_or_else(|_| panic!("Failed to read font file at path: {}", &font));
+    let emoji_data = fs::read(&emoji)
+        .unwrap_or_else(|_| panic!("Failed to read emoji font file at path: {}", &emoji));
 
     let font = Font::from_bytes(font_data, fontdue::FontSettings::default())
         .expect("Failed to parse font");
@@ -113,14 +115,7 @@ pub struct Font {{
                     None => continue,
                 };
 
-                let (metrics, bitmap) = {
-                    if is_emoji {
-                        &emoji
-                    } else {
-                        &font
-                    }
-                }
-                .rasterize(ch, px);
+                let (metrics, bitmap) = { if is_emoji { &emoji } else { &font } }.rasterize(ch, px);
 
                 if metrics.advance_width == 0.0 {
                     continue;
@@ -189,4 +184,3 @@ pub struct Font {{
         writeln!(file, "}};").unwrap();
     }
 }
-

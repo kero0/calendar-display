@@ -1,18 +1,36 @@
 [package]
 name = "calendar-display"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+
+[features]
+pi = ["dep:linux-embedded-hal", "dep:rppal", "dep:signal-hook", "dep:reqwest", "dep:chrono", "dep:chrono-tz", "dep:ical", "dep:serde_json"]
+server = ["dep:signal-hook", "dep:tiny_http", "dep:png", "dep:reqwest", "dep:ical", "dep:serde_json", "dep:chrono", "dep:chrono-tz", "dep:image"]
 
 [dependencies]
-chrono = "0.4.42"
-embedded-graphics = "0.8.1"
 epd-waveshare = "0.6.0"
-ical = "0.11.0"
-linux-embedded-hal = "0.4.1"
-reqwest = { version = "0.12.28", features = ["blocking", "json"] }
-rppal = { version = "0.22.1", features = ["embedded-hal"] }
-serde_json = "1.0.147"
-signal-hook = "0.4.1"
+ical = {version = "0.11.0", optional = true}
+reqwest = { version = "0.13.4", features = ["blocking", "json"], optional = true }
+rppal = { version = "0.22.1", features = ["embedded-hal"], optional = true }
+serde_json = { version = "1.0.147", optional = true }
+signal-hook = { version = "0.4.1", optional = true }
+tiny_http = { version = "0.12.0", optional = true }
+embedded-graphics = "0.8.2"
+linux-embedded-hal = { version = "0.4.1", optional = true }
+png = { version = "0.18.1", optional = true }
+chrono = { version = "0.4.45", optional = true }
+chrono-tz = { version = "0.10.4", optional = true }
+image = { version = "0.25.9", optional = true }
+
+[[bin]]
+name = "calendar-display-pi"
+path = "src/bin/calendar_display_pi.rs"
+required-features = ["pi"]
+
+[[bin]]
+name = "calendar-display-server"
+path = "src/bin/calendar_display_server.rs"
+required-features = ["server"]
 
 [build-dependencies]
 fontdue = "0.9.3"

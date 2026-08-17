@@ -1,22 +1,16 @@
-use std::{cell::RefCell, rc::Rc};
-
+use calendar_display::{
+    data::{DisplayData, mk_run_args, run},
+    image_gen::Disp,
+};
 use epd_waveshare::epd7in5_v2::*;
 use epd_waveshare::prelude::WaveshareDisplay;
 use linux_embedded_hal::{
+    Delay, SpidevDevice,
     spidev::{self, SpidevOptions},
-    Delay, SPIError, SpidevDevice,
 };
 use rppal::gpio::{Gpio, OutputPin};
 use signal_hook::consts::signal::{SIGINT, SIGTERM, SIGUSR1};
 use signal_hook::iterator::Signals;
-
-use crate::{
-    data::{mk_run_args, run, DisplayData, RunArgs},
-    image_gen::Disp,
-};
-mod data;
-mod fonts;
-mod image_gen;
 
 pub const EPD_RST_PIN: u8 = 17;
 pub const EPD_DC_PIN: u8 = 25;
@@ -29,17 +23,14 @@ pub const EPD_SCLK_PIN: u8 = 11;
 type Device<'a> =
     Epd7in5<SpidevDevice, rppal::gpio::InputPin, &'a mut OutputPin, &'a mut OutputPin, Delay>;
 
-fn run_and_update(
+fn update(
     cs: &mut OutputPin,
     pwr: &mut OutputPin,
     display: &mut Disp,
     device: &mut Device,
     delay: &mut Delay,
     spi: &mut SpidevDevice,
-    runargs: &RunArgs,
-    state: Rc<RefCell<DisplayData>>,
 ) {
-    run(display, &runargs, state);
     eprintln!("Updating display");
     cs.set_high();
     pwr.set_high();
@@ -94,16 +85,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("Device successfully initialized!");
 
     eprintln!("Starting initial update");
-    let  state = Rc::new(RefCell::new(DisplayData::default()));
-    run_and_update(
+    let mut state = DisplayData::default();
+    run(&mut display, &runargs, &mut state);
+    update(
         &mut cs,
         &mut pwr,
         &mut display,
         &mut device,
         &mut delay,
         &mut spi,
-        &runargs,
-        state.clone(),
     );
     eprintln!("Finished initial update");
 
@@ -115,75 +105,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for signal in signals.forever() {
         match signal {
             SIGUSR1 => {
-                println!("SIGUSR1 received: running update");
-                run_and_update(
+                eprintln!("SIGUSR1 received: running update");
+                run(&mut display, &runargs, &mut state);
+                update(
                     &mut cs,
                     &mut pwr,
                     &mut display,
                     &mut device,
                     &mut delay,
                     &mut spi,
-                    &runargs,
-                    state.clone(),
                 );
             }
             SIGINT | SIGTERM => {
-                println!("Exit signal received");
+                eprintln!("Exit signal received");
                 break;
             }
             _ => {}
         }
     }
     Ok(())
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use image::{ImageBuffer, Luma};
-
-    use image_gen::{HEIGHT, WIDTH};
-
-    #[test]
-    fn render_to_png() -> Result<(), Box<dyn std::error::Error>> {
-        let runargs = data::RunArgs {
-            lat: 42.3297,
-            lon: -83.0425,
-            ics: "./test/test.ics".to_string(),
-            max_events: 10,
-            weather_ttl: 0,
-            calendar_ttl: 0,
-        };
-        eprintln!("Test render with config: {:?}", runargs);
-
-        let mut display = Display7in5::default();
-
-        let data = data::run(&mut display, &runargs, None);
-
-        println!("Data: {:?}", data);
-
-        let mut img: ImageBuffer<Luma<u8>, Vec<u8>> = ImageBuffer::new(WIDTH as u32, HEIGHT as u32);
-
-        let buffer = display.buffer();
-
-        let bytes_per_row = (WIDTH as usize + 7) / 8;
-
-        for y in 0..HEIGHT as usize {
-            for x in 0..WIDTH as usize {
-                let byte_idx = y * bytes_per_row + (x / 8);
-                let bit = 7 - (x % 8);
-
-                let value = if (buffer[byte_idx] >> bit) & 1 == 0 {
-                    255
-                } else {
-                    0
-                };
-
-                img.put_pixel(x as u32, y as u32, Luma([value]));
-            }
-        }
-
-        img.save("./test/test_output.png")?;
-
-        Ok(())
-    }
 }

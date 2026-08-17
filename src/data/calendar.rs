@@ -1,4 +1,5 @@
-use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono_tz::Tz;
 use ical::IcalParser;
 use std::error::Error;
 use std::{fs::read_to_string, io::BufReader};
@@ -27,7 +28,21 @@ fn load_ics(source: &str) -> Result<String, Box<dyn Error>> {
     }
 }
 
-fn parse_ics_datetime(value: &str, allday: &mut bool) -> Option<DateTime<Local>> {
+fn parse_naive_datetime(value: &str) -> Option<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S")
+        .or_else(|_| NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M"))
+        .ok()
+}
+
+fn tzid_from_params(params: &Option<Vec<(String, Vec<String>)>>) -> Option<&str> {
+    let (.., values) = params
+        .as_ref()?
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("TZID"))?;
+    values.first().map(String::as_str)
+}
+
+fn parse_ics_datetime(value: &str, tzid: Option<&str>, allday: &mut bool) -> Option<DateTime<Local>> {
     // all day event
     if value.len() == 8 {
         let date = NaiveDate::parse_from_str(value, "%Y%m%d").ok()?;
@@ -39,29 +54,41 @@ fn parse_ics_datetime(value: &str, allday: &mut bool) -> Option<DateTime<Local>>
             .single();
     }
 
-    // date + time event
-    let fmt = match value.len() {
-        13 => "%Y%m%dT%H%M",
-        15 => "%Y%m%dT%H%M%S",
-        16 => "%Y%m%dT%H%M%SZ",
-        _ => {
-            eprintln!("Don't know how to parse date time string `{}`", value);
-            return None;
-        }
-    };
+    // Explicit UTC timestamps (ending in Z) must be interpreted as UTC first.
+    if let Some(value_no_z) = value.strip_suffix('Z') {
+        let dt_utc = parse_naive_datetime(value_no_z)?.and_utc();
+        return Some(dt_utc.with_timezone(&Local));
+    }
 
-    let dt = NaiveDateTime::parse_from_str(value, fmt).ok()?;
-    dt.and_local_timezone(Local).single()
+    let dt = parse_naive_datetime(value)?;
+
+    if let Some(tzid) = tzid {
+        match tzid.parse::<Tz>() {
+            Ok(tz) => {
+                let dt_tz = tz
+                    .from_local_datetime(&dt)
+                    .single()
+                    .or_else(|| tz.from_local_datetime(&dt).earliest())
+                    .or_else(|| tz.from_local_datetime(&dt).latest())?;
+                return Some(dt_tz.with_timezone(&Local));
+            }
+            Err(_) => eprintln!("Unknown TZID `{}`; falling back to local timezone", tzid),
+        }
+    }
+
+    Local
+        .from_local_datetime(&dt)
+        .single()
+        .or_else(|| Local.from_local_datetime(&dt).earliest())
+        .or_else(|| Local.from_local_datetime(&dt).latest())
 }
 
-pub fn mkcalendar(path: &str, max_events: usize) -> Result<Calendar, Box<dyn Error>> {
+fn parse_ics_file(path: &str, today: NaiveDate) -> Result<Vec<CalendarEvent>, Box<dyn Error>> {
     let text = load_ics(path)?;
     let parser = IcalParser::new(BufReader::new(text.as_bytes()));
 
-    let today = Local::now().date_naive();
-
-    let mut events = parser
-        .filter_map(|x| x.ok())
+    let events = parser
+        .flat_map(|x| x.ok())
         .flat_map(|x| x.events)
         .filter_map(|event| {
             let mut title: Option<String> = None;
@@ -73,18 +100,20 @@ pub fn mkcalendar(path: &str, max_events: usize) -> Result<Calendar, Box<dyn Err
                 match prop.name.as_str() {
                     "SUMMARY" => title = prop.value,
                     "DTSTART" => {
-                        if let Some(v) = prop.value {
-                            if let Some(dt) = parse_ics_datetime(&v, &mut allday) {
-                                start = Some(dt);
-                            }
+                        let tzid = tzid_from_params(&prop.params);
+                        if let Some(v) = prop.value
+                            && let Some(dt) = parse_ics_datetime(&v, tzid, &mut allday)
+                        {
+                            start = Some(dt);
                         }
                     }
 
                     "DTEND" => {
-                        if let Some(v) = prop.value {
-                            if let Some(dt) = parse_ics_datetime(&v, &mut allday) {
-                                end = Some(dt);
-                            }
+                        let tzid = tzid_from_params(&prop.params);
+                        if let Some(v) = prop.value
+                            && let Some(dt) = parse_ics_datetime(&v, tzid, &mut allday)
+                        {
+                            end = Some(dt);
                         }
                     }
                     _ => {}
@@ -111,14 +140,22 @@ pub fn mkcalendar(path: &str, max_events: usize) -> Result<Calendar, Box<dyn Err
         })
         .collect::<Vec<CalendarEvent>>();
 
+    Ok(events)
+}
+
+pub fn mkcalendar(paths: &[String], max_events: usize) -> Result<Calendar, Box<dyn Error>> {
+    let today = Local::now().date_naive();
+    let mut events = paths
+        .iter()
+        .flat_map(|path| parse_ics_file(path, today).unwrap_or_default())
+        .collect::<Vec<CalendarEvent>>();
+
     events.dedup();
+    events.sort_by_key(|a| a.start);
+    events.truncate(max_events);
 
     Ok(Calendar {
         time: Utc::now(),
-        events: if max_events < events.len() {
-            events[0..max_events].to_vec()
-        } else {
-            events
-        },
+        events,
     })
 }

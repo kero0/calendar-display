@@ -1,0 +1,12 @@
+((rustic-mode
+  .((eglot-workspace-configuration
+     . (:rust-analyzer
+        ( :procMacro ( :attributes (:enable t)
+                       :enable t)
+          :initializationOptions (:check (:command "clippy"))
+          :cargo ( :buildScripts (:enable t)
+                   :features "server,pi"
+                   :extraEnv (:RUSTFLAGS "--edition=2024"))
+          :diagnostics ( :disabled ["unresolved-proc-macro"
+                                    "unresolved-macro-call"])))))))
+((rustic-mode . ((flycheck-rust-features . '("server" "pi")))))

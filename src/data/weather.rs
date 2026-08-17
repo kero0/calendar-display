@@ -91,23 +91,23 @@ pub fn is_sun_up(lat_deg: f64, lon_deg: f64, now: DateTime<Utc>) -> bool {
     let lat = lat_deg.to_radians();
 
     // convert to Julian
-    let unix_days = now.timestamp() as f64 / 86400.0;
-    let jd = unix_days + 2440587.5;
+    let unix_days = now.timestamp() as f64 / 86400f64;
+    let jd = unix_days + 2440587.5f64;
 
-    let n = jd - 2451545.0;
+    let n = jd - 2451545.0f64;
 
     // solar coords
-    let mean_long = (280.460 + 0.9856474 * n).to_radians();
-    let mean_anom = (357.528 + 0.9856003 * n).to_radians();
+    let mean_long = (280.460f64 + 0.9856474f64 * n).to_radians();
+    let mean_anom = (357.528f64 + 0.9856003f64 * n).to_radians();
 
-    let eclip_long =
-        mean_long + (1.915 * mean_anom.sin() + 0.020 * (2.0 * mean_anom).sin()).to_radians();
+    let eclip_long = mean_long
+        + (1.915f64 * mean_anom.sin() + 0.020f64 * (2.0f64 * mean_anom).sin()).to_radians();
 
-    let obliq = (23.439 - 0.0000004 * n).to_radians();
+    let obliq = (23.439f64 - 0.0000004f64 * n).to_radians();
 
     let decl = (obliq.sin() * eclip_long.sin()).asin();
 
-    let y = (obliq / 2.0).tan().powi(2);
+    let y = (obliq / 2f64).tan().powi(2);
 
     let eq_time = 4.0
         * (y * (2.0 * mean_long).sin() - 2.0 * 0.0167 * mean_anom.sin()

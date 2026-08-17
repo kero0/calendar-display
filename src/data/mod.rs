@@ -4,8 +4,7 @@ use calendar::mkcalendar;
 use chrono::Utc;
 use datetime::mk_time_date;
 use std::env::{self, VarError};
-use std::{cell::RefCell, rc::Rc};
-use weather::{mkweather, WeatherData};
+use weather::{WeatherData, mkweather};
 
 pub mod calendar;
 pub mod datetime;
@@ -17,24 +16,27 @@ pub struct DisplayData {
     pub calendar: Calendar,
     pub date: String,
     pub time: String,
+    pub hour: u8,
+    pub minute: u8,
 }
 #[derive(Debug)]
 pub struct RunArgs {
     pub lat: f64,
     pub lon: f64,
-    pub ics: String,
+    pub ics: Vec<String>,
     pub max_events: usize,
     pub weather_ttl: i64,
     pub calendar_ttl: i64,
 }
 
-pub fn run(display: &mut Disp, args: &RunArgs, data:  Rc<RefCell<DisplayData>>) {
-    let (time, date) = mk_time_date();
+pub fn run(display: &mut Disp, args: &RunArgs, data: &mut DisplayData) {
+    let (time, date, hour, minute) = mk_time_date();
 
-    let mut data = data.borrow_mut();
     let now = Utc::now();
     data.date = date;
     data.time = time;
+    data.hour = hour;
+    data.minute = minute;
 
     if (now - data.weather.time).num_seconds() > args.weather_ttl {
         match mkweather(args.lat, args.lon) {
@@ -43,7 +45,7 @@ pub fn run(display: &mut Disp, args: &RunArgs, data:  Rc<RefCell<DisplayData>>) 
         };
     }
     if (now - data.calendar.time).num_seconds() > args.calendar_ttl {
-        match mkcalendar(args.ics.as_str(), args.max_events) {
+        match mkcalendar(&args.ics, args.max_events) {
             Ok(calendar) => {
                 data.calendar = calendar;
             }
@@ -53,7 +55,7 @@ pub fn run(display: &mut Disp, args: &RunArgs, data:  Rc<RefCell<DisplayData>>) 
 
     eprintln!("{:?}", data);
 
-    match create_image(display, &data) {
+    match create_image(display, data) {
         Ok(()) => eprintln!("Successfully updated display"),
         Err(err) => eprintln!("Failed to update display: {:?}", err),
     }
@@ -70,7 +72,11 @@ pub fn mk_run_args() -> RunArgs {
         .parse::<f64>()
         .expect("LON must be a float");
 
-    let ics = env::var("ICS").expect("ICS env var not set");
+    let ics = env::var("ICS")
+        .expect("ICS env var not set")
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect::<Vec<String>>();
 
     let max_events = match env::var("MAX_EVENTS") {
         Ok(s) => s.parse().expect("MAX_EVENTS must be an integer"),

@@ -4,16 +4,26 @@
   outputs =
     { self, nixpkgs }:
     let
-      regular-font = pkgs: "${pkgs.noto-fonts}/share/fonts/noto/NotoSans[wdth,wght].ttf";
+      regular-font =
+        pkgs:
+        if pkgs.stdenv.targetPlatform.system == "aarch64-linux" then
+          "${pkgs.noto-fonts}/share/fonts/noto/NotoSans[wdth,wght].ttf"
+        else
+          "${pkgs.noto-fonts}/share/fonts/noto/NotoSans.ttf";
       # workaround for pkgs.rename being broken on "armv6l-unknown-linux-musleabihf"
-      emoji-font = pkgs: "${pkgs.noto-fonts-monochrome-emoji.overrideAttrs (old: {installPhase = ''
-        runHook preInstall
+      emoji-font =
+        pkgs:
+        "${
+          pkgs.noto-fonts-monochrome-emoji.overrideAttrs (old: {
+            installPhase = ''
+              runHook preInstall
 
-        install -m444 -Dt $out/share/fonts/noto ofl/notoemoji/*.ttf
+              install -m444 -Dt $out/share/fonts/noto ofl/notoemoji/*.ttf
 
-        runHook postInstall
-      '';})
-      }/share/fonts/noto/NotoEmoji[wght].ttf";
+              runHook postInstall
+            '';
+          })
+        }/share/fonts/noto/NotoEmoji[wght].ttf";
 
       supportedSystems = [
         "x86_64-linux"
@@ -51,7 +61,7 @@
           };
 
         };
-      mkpackage =
+      mkrpi =
         system:
         let
           pkgs = import nixpkgs {
@@ -86,11 +96,50 @@
               "-C"
               "target-feature=+crt-static"
             ];
+            cargoBuildFlags = [
+              "--bin"
+              "calendar-display-pi"
+              "-F"
+              "pi"
+            ];
+          };
+        };
+      mkserver =
+        system:
+        let
+          pkgs = import nixpkgs {
+            system = system;
+          };
+        in
+        {
+          ${system} = pkgs.rustPlatform.buildRustPackage rec {
+            name = "calendar-display-server";
+            doCheck = false;
+            version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+            nativeBuildInputs = with pkgs; [
+              pkg-config
+            ];
+
+            REGULAR_FONT_PATH = regular-font pkgs;
+            EMOJI_FONT_PATH = emoji-font pkgs;
+
+            buildInputs = with pkgs; [
+              openssl.dev
+            ];
+
+            src = ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+            cargoBuildFlags = [
+              "--bin"
+              "calendar-display-server"
+              "--features=server"
+            ];
           };
         };
     in
     {
       devShells = nixpkgs.lib.foldr nixpkgs.lib.mergeAttrs { } (map mkshell supportedSystems);
-      defaultPackage = nixpkgs.lib.foldr nixpkgs.lib.mergeAttrs { } (map mkpackage supportedSystems);
+      rpi = nixpkgs.lib.foldr nixpkgs.lib.mergeAttrs { } (map mkrpi supportedSystems);
+      server = nixpkgs.lib.foldr nixpkgs.lib.mergeAttrs { } (map mkserver supportedSystems);
     };
 }

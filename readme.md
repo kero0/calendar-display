@@ -14,7 +14,7 @@ The `nix build` results in 1 statically linked binary that includes everything t
 
 ### On the build machine
 The first build will take a bit if you haven't cross compiled with nix before since it will need time to download libraries.
-1. `cp $(nix build --no-link --print-out-paths)/bin/calendar-display calendar-display/calendar-display`
+1. `cp $(nix build --no-link --print-out-paths .#rpi.x86_64-linux)/bin/calendar-display calendar-display/calendar-display`
 2. `cp calendar-display/env.example calendar-display/env`
 3. Fill in all the environment variables in `calendar-display/env`
 4. Copy the whole `calendar-display` folder to `~/calendar-display` on your raspberry pi `rsync -avP /path/to/calendar-display/ USER@raspberrypi:calendar-display/`
@@ -23,3 +23,6 @@ The first build will take a bit if you haven't cross compiled with nix before si
 If you don't have spi enabled on your raspberry pi then first run `sudo raspi-config nonint do_spi 0 && sudo reboot` to enable spi
 1. `cd ~/calendar-display`
 2. `./install.sh`
+
+## Server project
+The separate

@@ -1,22 +1,45 @@
 use crate::data::calendar::CalendarEvent;
 use crate::{data::DisplayData, fonts::*};
+use chrono::{Datelike, Weekday};
 use embedded_graphics::{prelude::*, primitives::*};
 use epd_waveshare::color::Color;
+use std::f32::consts::PI;
 
 pub type Disp = epd_waveshare::epd7in5_v2::Display7in5;
 
 pub const WIDTH: i32 = 800;
 pub const HEIGHT: i32 = 480;
 const TOP: i32 = 50;
-const LEFT_COL_X: i32 = 15;
-const LEFT_COL_W: i32 = 350;
+const LEFT_COL_X: i32 = 10;
+const LEFT_COL_W: i32 = 300;
 const RIGHT_COL_X: i32 = LEFT_COL_X + LEFT_COL_W;
 const LINE_GAP: i32 = 4;
 const TITLE_LINES_MAX: i32 = 2;
+const CLOCK_DIAMETER: i32 = LEFT_COL_W * 13 / 20;
+const CLOCK_RADIUS: i32 = CLOCK_DIAMETER / 2;
 
 const LINE_HEIGHT: i32 = (FONT_BODY.ascent - FONT_BODY.descent) as i32;
 const DETAIL_BLOCK_HEIGHT: i32 = LINE_HEIGHT + LINE_GAP;
 const BOTTOM_LIMIT: i32 = HEIGHT - (LINE_GAP * 2);
+
+fn weekday_letter(weekday: Weekday) -> char {
+    match weekday {
+        Weekday::Mon => 'M',
+        Weekday::Tue => 'T',
+        Weekday::Wed => 'W',
+        Weekday::Thu => 'R',
+        Weekday::Fri => 'F',
+        Weekday::Sat => 'S',
+        Weekday::Sun => 'U',
+    }
+}
+
+fn shorten_meridiem_label(text: &str) -> String {
+    text.replace(" AM", " A")
+        .replace(" PM", " P")
+        .replace(" am", " a")
+        .replace(" pm", " p")
+}
 
 pub fn create_image(
     display: &mut Disp,
@@ -29,11 +52,13 @@ pub fn create_image(
     // Left column
     let mut y = (TOP as f32 * 1.5) as i32;
 
-    // Date + Time
+    // Date + Clock
     draw_text(display, &FONT_HEADER, data.date.as_str(), Point::new(LEFT_COL_X, y))?;
-    y += 2 * (FONT_HEADER.ascent - FONT_HEADER.descent) as i32;
-    draw_text(display, &FONT_LARGE, data.time.as_str(), Point::new(LEFT_COL_X, y))?;
-    y += 2 * (FONT_LARGE.ascent - FONT_LARGE.descent) as i32;
+    y += (1.6 * ((FONT_HEADER.ascent - FONT_HEADER.descent) as f32)) as i32;
+
+    let clock_center = Point::new(LEFT_COL_X + (LEFT_COL_W * 4 / 5) / 2, y + CLOCK_RADIUS / 2);
+    draw_analog_clock(display, clock_center, CLOCK_RADIUS, data.hour, data.minute)?;
+    y += CLOCK_DIAMETER + 36;
 
     // Weather
     let icon_glyph = FONT_EMOJI
@@ -95,28 +120,40 @@ pub fn create_image(
                     end: None,
                     allday: true,
                     title: _,
-                } => start.format("%a %b %d").to_string(),
+                } => format!("{} {}", weekday_letter(start.weekday()), start.format("%b %d")),
                 CalendarEvent {
                     start,
                     end: Some(end),
                     allday: true,
                     title: _,
-                } => format!("{} - {}", start.format("%a %b %d"), end.format("%a %b %d")),
+                } => format!(
+                    "{} {} - {} {}",
+                    weekday_letter(start.weekday()),
+                    start.format("%b %d"),
+                    weekday_letter(end.weekday()),
+                    end.format("%b %d")
+                ),
                 CalendarEvent {
                     start,
                     end: None,
                     allday: false,
                     title: _,
-                } => start.format("%a %b %d %-I %p").to_string(),
+                } => format!(
+                    "{} {}",
+                    weekday_letter(start.weekday()),
+                    shorten_meridiem_label(&start.format("%b %d %-I:%M %p").to_string())
+                ),
                 CalendarEvent {
                     start,
                     end: Some(end),
                     allday: false,
                     title: _,
                 } => format!(
-                    "{} - {}",
-                    start.format("%a %b %d %-I %p"),
-                    end.format("%a %b %d %-I %p")
+                    "{} {} - {} {}",
+                    weekday_letter(start.weekday()),
+                    shorten_meridiem_label(&start.format("%b %d %-I:%M %p").to_string()),
+                    weekday_letter(end.weekday()),
+                    shorten_meridiem_label(&end.format("%b %d %-I:%M %p").to_string())
                 ),
             }
             .as_str(),
@@ -166,4 +203,54 @@ fn wrap_text<'a>(font: &Font, text: &'a str, max_width: i16, max_lines: usize) -
     }
 
     lines
+}
+
+fn draw_analog_clock(
+    display: &mut Disp,
+    center: Point,
+    radius: i32,
+    hour: u8,
+    minute: u8,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let rounded_minute = ((minute as i32 + 7) / 15 * 15).rem_euclid(60);
+    let rounded_hour = (hour as i32 + if rounded_minute == 0 && minute >= 53 { 1 } else { 0 }) % 12;
+
+    let face = Circle::new(
+        Point::new(center.x - radius, center.y - radius),
+        (radius * 2) as u32,
+    )
+    .into_styled(PrimitiveStyle::with_stroke(Color::White, 1));
+    face.draw(display)?;
+
+    for tick in 0..12 {
+        let angle = tick as f32 * (PI / 6.0);
+        let is_quarter = tick % 3 == 0;
+        let outer = clock_point(center, radius - 2, angle);
+        let inner = clock_point(center, radius - if is_quarter { 12 } else { 8 }, angle);
+        Line::new(inner, outer)
+            .into_styled(PrimitiveStyle::with_stroke(Color::White, 1))
+            .draw(display)?;
+    }
+
+    let minute_angle = rounded_minute as f32 * (PI / 30.0);
+    let hour_angle = (rounded_hour as f32 + rounded_minute as f32 / 60.0) * (PI / 6.0);
+
+    Line::new(center, clock_point(center, radius - 15, minute_angle))
+        .into_styled(PrimitiveStyle::with_stroke(Color::White, 2))
+        .draw(display)?;
+    Line::new(center, clock_point(center, radius - 35, hour_angle))
+        .into_styled(PrimitiveStyle::with_stroke(Color::White, 2))
+        .draw(display)?;
+
+    Circle::new(Point::new(center.x - 2, center.y - 2), 4)
+        .into_styled(PrimitiveStyle::with_fill(Color::White))
+        .draw(display)?;
+
+    Ok(())
+}
+
+fn clock_point(center: Point, length: i32, angle: f32) -> Point {
+    let x = center.x as f32 + length as f32 * angle.sin();
+    let y = center.y as f32 - length as f32 * angle.cos();
+    Point::new(x.round() as i32, y.round() as i32)
 }
